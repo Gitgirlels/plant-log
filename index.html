@@ -167,6 +167,23 @@
             color: white;
         }
 
+        .btn-link {
+            width: 100%;
+            padding: 12px;
+            background: transparent;
+            color: var(--earth-medium);
+            border: none;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: underline;
+            margin-top: 10px;
+        }
+
+        .btn-link:hover {
+            color: var(--earth-dark);
+        }
+
         /* Main App */
         .hidden {
             display: none !important;
@@ -631,6 +648,7 @@
             </div>
             <button class="btn" onclick="login()">Sign In</button>
             <button class="btn btn-secondary" onclick="showSignup()">Create Account</button>
+            <button class="btn-link" onclick="showForgotPassword()">Forgot Password?</button>
             <p style="text-align: center; margin-top: 20px; font-size: 0.85em; color: var(--earth-medium);">
                 Password must be at least 8 characters with uppercase, lowercase, and number
             </p>
@@ -769,6 +787,56 @@
                     </div>
                     <button type="submit" class="btn">Save Update</button>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Forgot Password Modal -->
+    <div id="forgotPasswordModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Reset Password</h2>
+                <button class="close-btn" onclick="closeForgotPasswordModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="forgotPasswordStep1">
+                    <p style="margin-bottom: 20px; color: var(--earth-medium);">
+                        Enter your username to verify your identity and reset your password.
+                    </p>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="forgotUsername" placeholder="Enter your username">
+                    </div>
+                    <button class="btn" onclick="verifyUsername()">Continue</button>
+                </div>
+                <div id="forgotPasswordStep2" class="hidden">
+                    <p style="margin-bottom: 20px; color: var(--earth-medium);">
+                        Answer your security question to verify your identity.
+                    </p>
+                    <div class="form-group">
+                        <label id="securityQuestionLabel">Security Question</label>
+                        <input type="text" id="securityAnswer" placeholder="Your answer">
+                    </div>
+                    <button class="btn" onclick="verifySecurityAnswer()">Verify</button>
+                    <button class="btn btn-secondary" onclick="backToStep1()">Back</button>
+                </div>
+                <div id="forgotPasswordStep3" class="hidden">
+                    <p style="margin-bottom: 20px; color: var(--leaf); font-weight: 500;">
+                        ✓ Identity verified! Create a new password.
+                    </p>
+                    <div class="form-group">
+                        <label>New Password</label>
+                        <input type="password" id="newPassword" placeholder="Enter new password">
+                    </div>
+                    <div class="form-group">
+                        <label>Confirm New Password</label>
+                        <input type="password" id="confirmNewPassword" placeholder="Confirm new password">
+                    </div>
+                    <p style="font-size: 0.85em; color: var(--earth-medium); margin-bottom: 20px;">
+                        Password must be at least 8 characters with uppercase, lowercase, and number
+                    </p>
+                    <button class="btn" onclick="resetPassword()">Reset Password</button>
+                </div>
             </div>
         </div>
     </div>
@@ -949,13 +1017,49 @@
                 return;
             }
 
+            // Security question for password recovery
+            const securityQuestions = [
+                "What was the name of your first pet?",
+                "What city were you born in?",
+                "What is your favorite plant?",
+                "What was your childhood nickname?",
+                "What is your mother's maiden name?"
+            ];
+
+            let questionChoice = prompt(
+                'Choose a security question for password recovery:\n\n' +
+                securityQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') +
+                '\n\nEnter the number (1-5):'
+            );
+
+            if (!questionChoice) return;
+            
+            const questionIndex = parseInt(questionChoice) - 1;
+            if (questionIndex < 0 || questionIndex >= securityQuestions.length) {
+                alert('Invalid selection. Account creation cancelled.');
+                return;
+            }
+
+            const securityAnswer = prompt(securityQuestions[questionIndex]);
+            if (!securityAnswer || securityAnswer.trim().length < 2) {
+                alert('Security answer is required. Account creation cancelled.');
+                return;
+            }
+
             // Generate salt and hash password
             const salt = generateSalt();
             const passwordHash = await hashPassword(password, salt);
+            
+            // Hash security answer as well
+            const answerSalt = generateSalt();
+            const answerHash = await hashPassword(securityAnswer.toLowerCase().trim(), answerSalt);
 
             users[trimmedUsername] = {
                 passwordHash: passwordHash,
                 salt: salt,
+                securityQuestion: securityQuestions[questionIndex],
+                securityAnswerHash: answerHash,
+                securityAnswerSalt: answerSalt,
                 createdAt: new Date().toISOString()
             };
 
@@ -973,6 +1077,120 @@
                 document.getElementById('loginUsername').value = '';
                 document.getElementById('loginPassword').value = '';
             }
+        }
+
+        // Forgot Password Flow
+        let forgotPasswordUsername = null;
+
+        function showForgotPassword() {
+            document.getElementById('forgotPasswordModal').classList.remove('hidden');
+            document.getElementById('forgotPasswordStep1').classList.remove('hidden');
+            document.getElementById('forgotPasswordStep2').classList.add('hidden');
+            document.getElementById('forgotPasswordStep3').classList.add('hidden');
+            document.getElementById('forgotUsername').value = '';
+            forgotPasswordUsername = null;
+        }
+
+        function closeForgotPasswordModal() {
+            document.getElementById('forgotPasswordModal').classList.add('hidden');
+            forgotPasswordUsername = null;
+        }
+
+        function verifyUsername() {
+            const username = document.getElementById('forgotUsername').value.trim();
+            
+            if (!username) {
+                alert('Please enter your username');
+                return;
+            }
+
+            const users = JSON.parse(localStorage.getItem('users') || '{}');
+            const user = users[username];
+
+            if (!user) {
+                alert('Username not found');
+                return;
+            }
+
+            if (!user.securityQuestion || !user.securityAnswerHash) {
+                alert('This account was created before security questions were added. Please contact support or create a new account.');
+                return;
+            }
+
+            // Show security question
+            forgotPasswordUsername = username;
+            document.getElementById('securityQuestionLabel').textContent = user.securityQuestion;
+            document.getElementById('securityAnswer').value = '';
+            document.getElementById('forgotPasswordStep1').classList.add('hidden');
+            document.getElementById('forgotPasswordStep2').classList.remove('hidden');
+        }
+
+        function backToStep1() {
+            document.getElementById('forgotPasswordStep2').classList.add('hidden');
+            document.getElementById('forgotPasswordStep1').classList.remove('hidden');
+            forgotPasswordUsername = null;
+        }
+
+        async function verifySecurityAnswer() {
+            const answer = document.getElementById('securityAnswer').value.trim();
+            
+            if (!answer) {
+                alert('Please enter your answer');
+                return;
+            }
+
+            const users = JSON.parse(localStorage.getItem('users') || '{}');
+            const user = users[forgotPasswordUsername];
+
+            // Hash the provided answer with the stored salt
+            const answerHash = await hashPassword(answer.toLowerCase().trim(), user.securityAnswerSalt);
+
+            if (answerHash === user.securityAnswerHash) {
+                // Answer is correct - proceed to password reset
+                document.getElementById('newPassword').value = '';
+                document.getElementById('confirmNewPassword').value = '';
+                document.getElementById('forgotPasswordStep2').classList.add('hidden');
+                document.getElementById('forgotPasswordStep3').classList.remove('hidden');
+            } else {
+                alert('Incorrect answer. Please try again.');
+            }
+        }
+
+        async function resetPassword() {
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmNewPassword').value;
+
+            if (!newPassword || !confirmPassword) {
+                alert('Please fill in both password fields');
+                return;
+            }
+
+            const passwordError = validatePassword(newPassword);
+            if (passwordError) {
+                alert(passwordError);
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                alert('Passwords do not match');
+                return;
+            }
+
+            // Generate new salt and hash new password
+            const newSalt = generateSalt();
+            const newPasswordHash = await hashPassword(newPassword, newSalt);
+
+            // Update user's password
+            const users = JSON.parse(localStorage.getItem('users') || '{}');
+            users[forgotPasswordUsername].passwordHash = newPasswordHash;
+            users[forgotPasswordUsername].salt = newSalt;
+            users[forgotPasswordUsername].passwordResetAt = new Date().toISOString();
+
+            localStorage.setItem('users', JSON.stringify(users));
+
+            alert('Password reset successfully! You can now log in with your new password.');
+            closeForgotPasswordModal();
+            forgotPasswordUsername = null;
         }
 
         function showMainApp() {
@@ -1315,11 +1533,6 @@
                                 <li><strong>Family:</strong> ${family}</li>
                                 <li><strong>Life Form:</strong> ${lifeform}</li>
                                 <li><strong>Native Range:</strong> ${distribution}</li>
-                                <p style="margin-top: 15px;">
-                                <a href="${powoUrl}" target="_blank" style="color: white; text-decoration: underline; font-weight: 500;">
-                                    View full botanical details on POWO →
-                                </a>
-                            </p>
                             </ul>
                             ${careInfoHTML}
                             ${!careData ? `
@@ -1327,8 +1540,14 @@
                                     💡 <strong>Care Tip:</strong> For detailed growing instructions, search for "${firstMatch.name}" care guides online or consult your local extension office.
                                 </p>
                             ` : ''}
-                            
-                            
+                            <p style="margin-top: 15px;">
+                                <a href="${powoUrl}" target="_blank" style="color: white; text-decoration: underline; font-weight: 500;">
+                                    View full botanical details on POWO →
+                                </a>
+                            </p>
+                            <p style="margin-top: 10px; font-size: 0.85em; opacity: 0.85;">
+                                Data from Plants of the World Online (Royal Botanic Gardens, Kew)
+                            </p>
                         </div>
                     `;
                 } else {
